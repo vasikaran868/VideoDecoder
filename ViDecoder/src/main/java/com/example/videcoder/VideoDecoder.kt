@@ -2,39 +2,145 @@ package com.example.videcoder
 
 import android.content.Context
 import android.graphics.*
+import android.media.ImageReader
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.os.Build
 import android.view.Surface
+import androidx.annotation.RequiresApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.transform
+import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 
 class VideoDecoder(val context: Context) {
 
-    private var decoder: MediaCodec? = null
+    private var contentDecoder: MediaCodec? = null
+    private var maskDecoder: MediaCodec? = null
     private val info = MediaCodec.BufferInfo()
+    val sharedFlow1 = MutableSharedFlow<FrameData>()
+    val sharedFlow2 = MutableSharedFlow<FrameData>()
 
-    fun decode(uri: Uri, surface: Surface){
-        val extractor = MediaExtractor()
-        extractor.setDataSource(context, uri, null)
+    val sharedFlow1Buffer = HashMap<Long, FrameData>()
+    val sharedFlow2Buffer = HashMap<Long, FrameData>()
 
-        val format = selectTrack(extractor)
+    val maskedFlow = MutableSharedFlow<FrameData>()
 
-        decoder = format.getString(MediaFormat.KEY_MIME)
+    init {
+        GlobalScope.launch {
+            sharedFlow1.collect { data ->
+                "content flow data..${data.info.presentationTimeUs}".rlog()
+                sharedFlow2Buffer[data.info.presentationTimeUs]?.let { mergedData ->
+                    maskedFlow.emit(FrameData(applyMask(data.image, mergedData.image), data.info))
+                    sharedFlow2Buffer.remove(data.info.presentationTimeUs)
+                } ?: run {
+                    sharedFlow1Buffer[data.info.presentationTimeUs] = data
+                }
+            }
+        }
+        GlobalScope.launch {
+            sharedFlow2.collect { data ->
+                "mask flow data..${data.info.presentationTimeUs}".rlog()
+                sharedFlow1Buffer[data.info.presentationTimeUs]?.let { mergedData ->
+                    maskedFlow.emit(FrameData(applyMask(mergedData.image, data.image), data.info))
+                    sharedFlow1Buffer.remove(data.info.presentationTimeUs)
+                } ?: run {
+                    sharedFlow2Buffer[data.info.presentationTimeUs] = data
+                }
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    suspend fun decode(uri: Uri, surface: Surface, coroutineScope: CoroutineScope){
+        val contentDataExtractor = MediaExtractor()
+        contentDataExtractor.setDataSource(context, uri, null)
+        val contentFormat = selectTrack(contentDataExtractor)
+        contentDecoder = contentFormat.getString(MediaFormat.KEY_MIME)
             ?.let { MediaCodec.createDecoderByType(it) }
-        val width = format.getInteger(MediaFormat.KEY_WIDTH)
-        val height = format.getInteger(MediaFormat.KEY_HEIGHT)
-        decoder?.setCallback( object : MediaCodec.Callback() {
+        val width = contentFormat.getInteger(MediaFormat.KEY_WIDTH)
+        val height = contentFormat.getInteger(MediaFormat.KEY_HEIGHT)
+        contentDecoder?.setCallback( object : MediaCodec.Callback() {
             override fun onInputBufferAvailable(codec: MediaCodec, inputBufferId: Int) {
                 val inputBuffer = codec.getInputBuffer(inputBufferId)
-                val rounds = extractor.readSampleData(inputBuffer!!, 0)
-
-                if (rounds > 0) {
-                    val currentT = extractor.sampleTime
-                    codec.queueInputBuffer(inputBufferId, 0, rounds, 0, 0)
-                    extractor.advance()
+                val sampleSize = contentDataExtractor.readSampleData(inputBuffer!!, 0)
+                if (sampleSize > 0) {
+                    val presentationTime = contentDataExtractor.sampleTime
+                    codec.queueInputBuffer(inputBufferId, 0, sampleSize, presentationTime, 0)
+                    contentDataExtractor.advance()
                 } else {
-                    // EOS
+                    codec.queueInputBuffer(
+                        inputBufferId,
+                        0,
+                        0,
+                        0,
+                        MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                    )
+                }
+            }
+
+            override fun onOutputBufferAvailable(
+                codec: MediaCodec,
+                outputBufferId: Int,
+                info: MediaCodec.BufferInfo
+            ) {
+//                val buffer = codec.getOutputBuffer(outputBufferId)!!
+//                "content frame info...${info.presentationTimeUs}".rlog()
+                coroutineScope.launch {
+                    "content output coroutine launched...${info.presentationTimeUs}".rlog()
+                    codec.getOutputImage(outputBufferId)?.let {
+                        "content output got image...${info.presentationTimeUs}".rlog()
+                        yuv420ToBitmap(it)?.let { bMap ->
+                            "content output got bitmap...${info.presentationTimeUs}".rlog()
+                            maskedFlow.emit(
+                                FrameData(
+                                    bMap,
+                                    info
+                                )
+                            )
+                        }
+                    }
+                    codec.releaseOutputBuffer(outputBufferId, false)
+
+                }
+            }
+
+            override fun onError(p0: MediaCodec, p1: MediaCodec.CodecException) {
+            }
+
+            override fun onOutputFormatChanged(p0: MediaCodec, p1: MediaFormat) {
+            }
+
+        })
+        contentDecoder?.configure(contentFormat, null, null, 0)
+        contentDecoder?.start()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    suspend fun decodeMaskVideo(maskUri: Uri, surface: Surface, coroutineScope: CoroutineScope){
+        val maskDataExtractor = MediaExtractor()
+        maskDataExtractor.setDataSource(context, maskUri, null)
+        val maskFormat = selectTrack(maskDataExtractor)
+        maskDecoder = maskFormat.getString(MediaFormat.KEY_MIME)
+            ?.let { MediaCodec.createDecoderByType(it) }
+        maskDecoder?.setCallback( object : MediaCodec.Callback() {
+            override fun onInputBufferAvailable(codec: MediaCodec, inputBufferId: Int) {
+                val inputBuffer = codec.getInputBuffer(inputBufferId)
+                val sampleSize = maskDataExtractor.readSampleData(inputBuffer!!, 0)
+                if (sampleSize > 0) {
+                    val presentationTime = maskDataExtractor.sampleTime
+                    codec.queueInputBuffer(inputBufferId, 0, sampleSize, presentationTime, 0)
+                    maskDataExtractor.advance()
+                } else {
                     codec.queueInputBuffer(
                         inputBufferId,
                         0,
@@ -51,26 +157,23 @@ class VideoDecoder(val context: Context) {
                 info: MediaCodec.BufferInfo
             ) {
                 val buffer = codec.getOutputBuffer(outputBufferId)!!
-                // Convert the video frame to a bitmap
-                val videoBitmap = buffer.toBitmap(width, height)
-
-                // Draw the translucent red overlay bitmap on top of the video frame bitmap
-//                val canvas = Canvas(videoBitmap)
-//                val paint = Paint()
-//                paint.colorFilter = PorterDuffColorFilter(Color.RED, PorterDuff.Mode.MULTIPLY)
-//                paint.alpha = 128 // Set transparency level (0-255), adjust as needed
-//                canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
-
-                surface?.lockCanvas(null)?.apply {
-                    // Clear canvas if necessary
-                    drawColor(Color.BLACK, PorterDuff.Mode.CLEAR)
-                    // Draw the combined frame
-                    drawBitmap(videoBitmap, 0f, 0f, null)
-                    // Unlock the canvas
-                    surface.unlockCanvasAndPost(this)
+                "mask frame info...${info.presentationTimeUs}".rlog()
+                coroutineScope.launch {
+                    "mask output coroutine launched...${info.presentationTimeUs}".rlog()
+                    codec.getOutputImage(outputBufferId)?.let {
+                        "mask output got image...${info.presentationTimeUs}".rlog()
+                        yuv420ToBitmap(it)?.let { bMap ->
+                            "mask output got bitmap...${info.presentationTimeUs}".rlog()
+                            maskedFlow.emit(
+                                FrameData(
+                                    bMap,
+                                    info
+                                )
+                            )
+                        }
+                    }
+                    codec.releaseOutputBuffer(outputBufferId, false)
                 }
-
-                codec.releaseOutputBuffer(outputBufferId, true)
             }
 
             override fun onError(p0: MediaCodec, p1: MediaCodec.CodecException) {
@@ -80,200 +183,17 @@ class VideoDecoder(val context: Context) {
             }
 
         })
-        decoder?.configure(format, null, null, 0)
-        decoder?.start()
-        "output format..${decoder!!.outputFormat}".rlog()
-
-//        val inputBuffers = decoder!!.inputBuffers
-//        var isEOS = false
-//        val timeoutUs = 10000L
-//
-//        while (!isEOS) {
-//            val inIndex = decoder!!.dequeueInputBuffer(timeoutUs)
-////            "in index...${inIndex}".rlog()
-//            if (inIndex >= 0) {
-//                val buffer = inputBuffers[inIndex]
-//                val sampleSize = extractor.readSampleData(buffer, 0)
-//                if (sampleSize < 0) {
-//                    decoder!!.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-//                    isEOS = true
-//                } else {
-//                    decoder!!.queueInputBuffer(inIndex, 0, sampleSize, extractor.sampleTime, 0)
-//                    extractor.advance()
-//                }
-//            }
-//            val outIndex = decoder!!.dequeueOutputBuffer(info, timeoutUs)
-//            "out index...${outIndex}".rlog()
-//            when (outIndex) {
-//                MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED -> decoder!!.outputBuffers
-//                MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-//                    // Subsequent data will conform to new format
-//                }
-//                MediaCodec.INFO_TRY_AGAIN_LATER -> {
-//                    // No output available yet
-//                }
-//                else -> {
-//                    val buffer = decoder!!.outputBuffers[outIndex]
-//                    // Use buffer content here if needed
-//                    decoder!!.releaseOutputBuffer(outIndex, true)
-////                    val buffer = decoder!!.getOutputBuffer(outIndex)!!
-////                    // Convert the video frame to a bitmap
-////                    val videoBitmap = buffer.toBitmap(width, height)
-////
-////                    // Draw the translucent red overlay bitmap on top of the video frame bitmap
-////                    val canvas = Canvas(videoBitmap)
-////                    val paint = Paint()
-////                    paint.colorFilter = PorterDuffColorFilter(Color.RED, PorterDuff.Mode.MULTIPLY)
-////                    paint.alpha = 128 // Set transparency level (0-255), adjust as needed
-////                    canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
-////
-////                    surface?.lockCanvas(null)?.apply {
-////                        // Clear canvas if necessary
-////                        drawColor(Color.BLACK, PorterDuff.Mode.CLEAR)
-////                        // Draw the combined frame
-////                        drawBitmap(videoBitmap, 0f, 0f, null)
-////                        // Unlock the canvas
-////                        surface.unlockCanvasAndPost(this)
-////                    }
-////
-////                    decoder!!.releaseOutputBuffer(outIndex, true)
-//                }
-//            }
-//        }
-
+        maskDecoder?.configure(maskFormat, null, null, 0)
+        maskDecoder?.start()
     }
 
-    fun ByteBuffer.toBitmap(width: Int, height: Int): Bitmap {
-        // Allocate an array to hold the RGBA values for each pixel
-        val argbArray = IntArray(width * height)
-
-        // Rewind the buffer
-        rewind()
-
-        // Iterate through each pixel in the buffer
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                // Calculate the index of the YUV components for the current pixel
-                val yIndex = y * width + x
-                val uIndex = width * height + (y / 2) * width + (x / 2) * 2
-                val vIndex = uIndex + 1
-
-                // Extract YUV components
-                val yValue = get(yIndex).toInt() and 0xFF
-                val uValue = get(uIndex).toInt() and 0xFF
-                val vValue = get(vIndex).toInt() and 0xFF
-
-                // Perform YUV to RGB conversion
-                val r = yValue + 1.402 * (vValue - 128)
-                val g = yValue - 0.344 * (uValue - 128) - 0.714 * (vValue - 128)
-                val b = yValue + 1.772 * (uValue - 128)
-
-                // Clamp RGB values to the range [0, 255]
-                val red = r.coerceIn(0.0, 255.0).toInt()
-                val green = g.coerceIn(0.0, 255.0).toInt()
-                val blue = b.coerceIn(0.0, 255.0).toInt()
-
-                // Combine RGB values into a single pixel
-                argbArray[y * width + x] = Color.rgb(red, green, blue)
-            }
-        }
-
-        // Create a bitmap from the ARGB array
-        return Bitmap.createBitmap(argbArray, width, height, Bitmap.Config.ARGB_8888)
-    }
-
-//    fun ByteBuffer.toBitmap(width: Int, height: Int): Bitmap {
-//        val arr = ByteArray(this.remaining())
-//        this.get(arr)
-//        "byte array size..${arr}".rlog()
-////        val argbArray = IntArray(width * height)
-////        rewind()
-////
-////        // Calculate the size of each plane (Y, U, V)
-////        val ySize = width * height
-////        val uvSize = ySize / 4
-////
-////        // Check if there's enough data in the buffer
-////        if (remaining() < ySize + 2 * uvSize) {
-////            throw IllegalArgumentException("Not enough data in ByteBuffer to create a bitmap")
-////        }
-////
-////        // YUV planar format: YYYYYYYY UU VV
-////        // Iterate over each pixel and convert YUV to RGB
-////        for (i in 0 until height) {
-////            for (j in 0 until width) {
-////                val yIndex = i * width + j
-////                val uvIndex = ySize + (i / 2) * width + (j / 2) * 2
-////
-////                val y = get().toInt() and 0xFF
-////                val u = get(uvIndex).toInt() and 0xFF
-////                val v = get(uvIndex + 1).toInt() and 0xFF
-////
-////                // YUV to RGB conversion
-////                var r = y + (1.370705 * (v - 128)).toInt()
-////                var g = y - (0.698001 * (v - 128) + 0.337633 * (u - 128)).toInt()
-////                var b = y + (1.732446 * (u - 128)).toInt()
-////
-////                // Clamp RGB values to 0-255 range
-////                r = r.coerceIn(0, 255)
-////                g = g.coerceIn(0, 255)
-////                b = b.coerceIn(0, 255)
-////
-////                // Combine RGB values into a single pixel
-////                argbArray[yIndex] = Color.rgb(r, g, b)
-////            }
-////        }
-////
-////        // Create a bitmap from the ARGB array
-//        return BitmapFactory.decodeByteArray(arr, width, height)
-//    }
-
-    private fun applyGrayscaleFilter(buffer: ByteBuffer) {
-        // Get the YUV data from the input buffer
-        val yuvBytes = ByteArray(buffer.remaining())
-        buffer.get(yuvBytes)
-        "yuv bytes size...${yuvBytes.size}".rlog()
-
-        // Initialize variables for YUV components
-        var y: Int
-        var u: Int
-        var v: Int
-
-        // Loop through each pixel in YUV format
-        for (i in 0 until yuvBytes.size step 3) {
-            // Get YUV components for the current pixel
-            y = yuvBytes[i].toInt() and 0xFF
-            u = yuvBytes[i + 1].toInt() and 0xFF
-            v = yuvBytes[i + 2].toInt() and 0xFF
-
-            // Convert YUV to RGB
-            val r = (1.164 * (y - 16) + 1.596 * (v - 128)).toInt()
-            val g = (1.164 * (y - 16) - 0.813 * (v - 128) - 0.391 * (u - 128)).toInt()
-            val b = (1.164 * (y - 16) + 2.018 * (u - 128)).toInt()
-
-            // Apply grayscale filter to RGB values
-            val gray = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
-
-            // Clamp the values to ensure they are within the valid range [0, 255]
-            val grayPixel = gray.coerceIn(0, 255)
-
-            // Convert the grayscale value back to YUV format
-            yuvBytes[i] = grayPixel.toByte()
-            yuvBytes[i + 1] = ((128 + 0.5 * (b - 128) + 0.418688 * (r - 128) + 0.081312 * (g - 128)).toInt()).toByte()
-            yuvBytes[i + 2] = ((128 + 0.5 * (r - 128) - 0.168736 * (g - 128) - 0.331264 * (b - 128)).toInt()).toByte()
-        }
-
-        // Update the original buffer with the modified YUV values
-        buffer.clear()
-        buffer.put(yuvBytes)
-    }
-
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun selectTrack(extractor: MediaExtractor): MediaFormat {
         "extractor track count...${extractor.trackCount}".rlog()
         for (i in 0 until extractor.trackCount) {
             val format = extractor.getTrackFormat(i)
+            "track..$i...format...${format.keys}...${format.features}".rlog()
             val mime = format.getString(MediaFormat.KEY_MIME)
-            "extractor mime type...${mime}".rlog()
             if (mime?.startsWith("video/") == true) {
                 extractor.selectTrack(i)
                 return format
@@ -283,7 +203,12 @@ class VideoDecoder(val context: Context) {
     }
 
     fun releaseDecoder() {
-        decoder?.stop()
-        decoder?.release()
+        contentDecoder?.stop()
+        contentDecoder?.release()
     }
 }
+
+data class FrameData(
+    val image: Bitmap,
+    val info: MediaCodec.BufferInfo
+)
