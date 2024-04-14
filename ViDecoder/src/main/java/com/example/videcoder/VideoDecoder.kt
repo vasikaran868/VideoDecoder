@@ -2,10 +2,7 @@ package com.example.videcoder
 
 import android.content.Context
 import android.graphics.*
-import android.media.ImageReader
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
+import android.media.*
 import android.net.Uri
 import android.os.Build
 import android.view.Surface
@@ -27,20 +24,20 @@ class VideoDecoder(val context: Context) {
     private var contentDecoder: MediaCodec? = null
     private var maskDecoder: MediaCodec? = null
     private val info = MediaCodec.BufferInfo()
-    val sharedFlow1 = MutableSharedFlow<FrameData>()
-    val sharedFlow2 = MutableSharedFlow<FrameData>()
+    val sharedFlow1 = MutableSharedFlow<abc>()
+    val sharedFlow2 = MutableSharedFlow<def>()
 
-    val sharedFlow1Buffer = HashMap<Long, FrameData>()
-    val sharedFlow2Buffer = HashMap<Long, FrameData>()
+    val sharedFlow1Buffer = HashMap<Long, abc>()
+    val sharedFlow2Buffer = HashMap<Long, def>()
 
-    val maskedFlow = MutableSharedFlow<FrameData>()
+    val maskedFlow = MutableSharedFlow<FrameImageData>()
 
     init {
         GlobalScope.launch {
             sharedFlow1.collect { data ->
                 "content flow data..${data.info.presentationTimeUs}".rlog()
                 sharedFlow2Buffer[data.info.presentationTimeUs]?.let { mergedData ->
-                    maskedFlow.emit(FrameData(applyMask(data.image, mergedData.image), data.info))
+                    maskedFlow.emit(FrameImageData(data.imageData , mergedData.imageData , data.info))
                     sharedFlow2Buffer.remove(data.info.presentationTimeUs)
                 } ?: run {
                     sharedFlow1Buffer[data.info.presentationTimeUs] = data
@@ -51,7 +48,7 @@ class VideoDecoder(val context: Context) {
             sharedFlow2.collect { data ->
                 "mask flow data..${data.info.presentationTimeUs}".rlog()
                 sharedFlow1Buffer[data.info.presentationTimeUs]?.let { mergedData ->
-                    maskedFlow.emit(FrameData(applyMask(mergedData.image, data.image), data.info))
+                    maskedFlow.emit(FrameImageData(mergedData.imageData, data.imageData, mergedData.info))
                     sharedFlow1Buffer.remove(data.info.presentationTimeUs)
                 } ?: run {
                     sharedFlow2Buffer[data.info.presentationTimeUs] = data
@@ -94,20 +91,30 @@ class VideoDecoder(val context: Context) {
                 info: MediaCodec.BufferInfo
             ) {
 //                val buffer = codec.getOutputBuffer(outputBufferId)!!
-//                "content frame info...${info.presentationTimeUs}".rlog()
+//                "content frame info...${info.presentationTimeUs}".rlog()\
+//                val b = ByteBuffer.allocate(buffer.capacity())
+//                b.put(buffer)
                 coroutineScope.launch {
                     "content output coroutine launched...${info.presentationTimeUs}".rlog()
                     codec.getOutputImage(outputBufferId)?.let {
                         "content output got image...${info.presentationTimeUs}".rlog()
-                        yuv420ToBitmap(it)?.let { bMap ->
-                            "content output got bitmap...${info.presentationTimeUs}".rlog()
-                            maskedFlow.emit(
-                                FrameData(
-                                    bMap,
-                                    info
-                                )
+                        sharedFlow1.emit(
+                            abc(
+                                ContentImageData(
+                                    it.width,
+                                    it.height,
+                                    yBuffer = ByteBuffer.allocate(it.planes[0].buffer.capacity()).apply { put(it.planes[0].buffer) },
+                                    uBuffer = ByteBuffer.allocate(it.planes[1].buffer.capacity()).apply { put(it.planes[1].buffer) },
+                                    vBuffer = ByteBuffer.allocate(it.planes[2].buffer.capacity()).apply { put(it.planes[2].buffer) },
+                                    uvRowStride = it.planes[1].rowStride,
+                                    uvPixelStride = it.planes[1].pixelStride
+                                ),
+                                info
                             )
-                        }
+                        )
+//                        yuv420ToBitmap(it)?.let { bMap ->
+//                            "content output got bitmap...${info.presentationTimeUs}".rlog()
+//                        }
                     }
                     codec.releaseOutputBuffer(outputBufferId, false)
 
@@ -156,21 +163,29 @@ class VideoDecoder(val context: Context) {
                 outputBufferId: Int,
                 info: MediaCodec.BufferInfo
             ) {
-                val buffer = codec.getOutputBuffer(outputBufferId)!!
+//                val buffer = codec.getOutputBuffer(outputBufferId)!!
                 "mask frame info...${info.presentationTimeUs}".rlog()
+//                val b = ByteBuffer.allocate(buffer.capacity())
+//                b.put(buffer)
                 coroutineScope.launch {
                     "mask output coroutine launched...${info.presentationTimeUs}".rlog()
                     codec.getOutputImage(outputBufferId)?.let {
-                        "mask output got image...${info.presentationTimeUs}".rlog()
-                        yuv420ToBitmap(it)?.let { bMap ->
-                            "mask output got bitmap...${info.presentationTimeUs}".rlog()
-                            maskedFlow.emit(
-                                FrameData(
-                                    bMap,
-                                    info
-                                )
+                        "mask output got image...${it.format}".rlog()
+                        sharedFlow2.emit(
+                            def(
+                                MaskImageData(
+                                    it.width,
+                                    it.height,
+                                    yBuffer = ByteBuffer.allocate(it.planes[0].buffer.capacity()).apply { put(it.planes[0].buffer) },
+                                    uvRowStride = it.planes[1].rowStride,
+                                    uvPixelStride = it.planes[1].pixelStride
+                                ),
+                                info
                             )
-                        }
+                        )
+//                        yuv420ToBitmap(it)?.let { bMap ->
+//                            "mask output got bitmap...${info.presentationTimeUs}".rlog()
+//                        }
                     }
                     codec.releaseOutputBuffer(outputBufferId, false)
                 }
@@ -211,4 +226,50 @@ class VideoDecoder(val context: Context) {
 data class FrameData(
     val image: Bitmap,
     val info: MediaCodec.BufferInfo
+)
+
+data class OutputBufferData(
+    val buffer: ByteBuffer,
+    val info: MediaCodec.BufferInfo
+
+)
+
+data class ImageData(
+    val img: Image,
+    val info: MediaCodec.BufferInfo
+)
+
+data class FrameImageData(
+    val contentImageData: ContentImageData,
+    val maskImageData: MaskImageData,
+    val info: MediaCodec.BufferInfo
+)
+
+data class abc(
+    val imageData: ContentImageData,
+    val info: MediaCodec.BufferInfo
+)
+
+data class def(
+    val imageData: MaskImageData,
+    val info: MediaCodec.BufferInfo
+)
+
+
+data class ContentImageData(
+    val imageWidth: Int,
+    val imageHeight: Int,
+    val uvRowStride: Int,
+    val uvPixelStride: Int,
+    val yBuffer: ByteBuffer,
+    val uBuffer: ByteBuffer,
+    val vBuffer: ByteBuffer
+)
+
+data class MaskImageData(
+    val imageWidth: Int,
+    val imageHeight: Int,
+    val yBuffer: ByteBuffer,
+    val uvRowStride: Int,
+    val uvPixelStride: Int
 )

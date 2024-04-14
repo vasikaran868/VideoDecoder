@@ -23,7 +23,7 @@ class MainActivity : AppCompatActivity() {
             Uri.parse("android.resource://" + this.packageName + "/" + R.raw.mask_video)
         "video uri...${videoUri}...${videoUr}".rlog()
         previewBtn.setOnClickListener {
-            renderer.renderPreview()
+            renderer.renderPreview(videoUr, videoUri)
         }
 
     }

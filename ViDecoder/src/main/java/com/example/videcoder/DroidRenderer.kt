@@ -52,11 +52,11 @@ class DroidRenderer: SurfaceView, SurfaceHolder.Callback {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    fun renderPreview(){
+    fun renderPreview(maskVideoUri: Uri, contentVideoUri: Uri){
         try {
             val coroutineScope = CoroutineScope(Dispatchers.Default)
-            val maskVideoUri = Uri.parse("android.resource://com.example.videodeocder/2131689473")
-            val contentVideoUri = Uri.parse("android.resource://com.example.videodeocder/2131689472")
+//            val maskVideoUri = Uri.parse("android.resource://com.example.videodeocder/2131689473")
+//            val contentVideoUri = Uri.parse("android.resource://com.example.videodeocder/2131820547")
             coroutineScope.launch {
                 videoDecoder.decode(contentVideoUri, this@DroidRenderer.holder.surface, coroutineScope)
             }
@@ -65,13 +65,14 @@ class DroidRenderer: SurfaceView, SurfaceHolder.Callback {
             }
             coroutineScope.launch {
                 videoDecoder.maskedFlow.collect{ fData ->
-                    val bMap = fData.image
-                    "bitmap width...${bMap.width}...height...${bMap.height}".rlog()
+//                    val bMap = fData.image
+                    "received masked bitmap...${fData.info.presentationTimeUs}".rlog()
+                    val bMap = mask(fData.contentImageData, fData.maskImageData)
                     this@DroidRenderer.holder.surface?.lockCanvas(null)?.apply {
                         // Clear canvas if necessary
                         drawColor(Color.BLACK, PorterDuff.Mode.CLEAR)
 
-                        drawColor(Color.CYAN)
+//                        drawColor(Color.CYAN)
                         // Draw the combined frame
                         drawBitmap( bMap , null, RectF(0f,0f, this.width.toFloat(), this.height.toFloat()), null)
                         // Unlock the canvas
