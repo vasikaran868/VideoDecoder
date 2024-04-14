@@ -68,15 +68,17 @@ class DroidRenderer: SurfaceView, SurfaceHolder.Callback {
 //                    val bMap = fData.image
                     "received masked bitmap...${fData.info.presentationTimeUs}".rlog()
                     val bMap = mask(fData.contentImageData, fData.maskImageData)
-                    this@DroidRenderer.holder.surface?.lockCanvas(null)?.apply {
-                        // Clear canvas if necessary
-                        drawColor(Color.BLACK, PorterDuff.Mode.CLEAR)
+                    bMap?.let {
+                        this@DroidRenderer.holder.surface?.lockCanvas(null)?.apply {
+                            // Clear canvas if necessary
+                            drawColor(Color.BLACK, PorterDuff.Mode.CLEAR)
 
 //                        drawColor(Color.CYAN)
-                        // Draw the combined frame
-                        drawBitmap( bMap , null, RectF(0f,0f, this.width.toFloat(), this.height.toFloat()), null)
-                        // Unlock the canvas
-                        this@DroidRenderer.holder.surface.unlockCanvasAndPost(this)
+                            // Draw the combined frame
+                            drawBitmap( bMap , null, RectF(0f,0f, this.width.toFloat(), this.height.toFloat()), null)
+                            // Unlock the canvas
+                            this@DroidRenderer.holder.surface.unlockCanvasAndPost(this)
+                        }
                     }
                 }
             }

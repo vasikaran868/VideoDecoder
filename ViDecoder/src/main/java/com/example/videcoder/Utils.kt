@@ -18,6 +18,10 @@ fun String.rlog(){
     Log.v("Debug Tag", this)
 }
 
+fun Any?.vlog(){
+    Log.e("fatalfatal" , this.toString()?:"null")
+}
+
 fun ByteBuffer.toBitmap(width: Int, height: Int): Bitmap {
     val argbArray = IntArray(width * height)
     rewind()
@@ -58,7 +62,10 @@ private fun applyGrayscaleFilter(buff: ByteBuffer) {
     buff.clear()
     buff.put(yuvBytes)
 }
-fun mask(contentImageData: ContentImageData, maskImageData: MaskImageData): Bitmap {
+
+var a = 0
+fun mask(contentImageData: ContentImageData, maskImageData: MaskImageData): Bitmap? {
+    if (a++ != 30){return null}
     return yuv420ToBitmap(contentImageData, maskImageData.yBuffer)!!
 //    val maskGrayscaleArray = extractGrayscaleValues(maskImageData)!!
 //    return applyMask(contentBitmap, maskGrayscaleArray)
@@ -182,7 +189,9 @@ fun clamp(value: Int, min: Int, max: Int): Int {
 
 fun yuv420ToBitmap(imageData: ContentImageData, maskYbuffer: ByteBuffer): Bitmap? {
     val imageWidth = imageData.imageWidth
+    "1 $imageWidth".vlog()
     val imageHeight = imageData.imageHeight
+    "2 $imageHeight".vlog()
     val argbArray = IntArray(imageWidth * imageHeight)
     val yBuffer = imageData.yBuffer
     yBuffer.position(0)
@@ -197,6 +206,7 @@ fun yuv420ToBitmap(imageData: ContentImageData, maskYbuffer: ByteBuffer): Bitmap
     var b: Int
     var uValue: Int
     var vValue: Int
+    var  first = 0
     for (y in 0 until imageHeight - 2) {
         for (x in 0 until imageWidth - 2) {
             val yIndex = y * imageWidth + x
@@ -212,6 +222,10 @@ fun yuv420ToBitmap(imageData: ContentImageData, maskYbuffer: ByteBuffer): Bitmap
             r = clamp(r, 0, 255)
             g = clamp(g, 0, 255)
             b = clamp(b, 0, 255)
+            if (first <100){
+                "$first rgb $r $g $b".vlog()
+                first++
+            }
             val customAlpha = maskYbuffer[yIndex].toInt() and 0xff
             argbArray[yIndex] = (customAlpha and 0xFF shl 24) or (r and 0xFF shl 16) or (g and 0xFF shl 8) or (b and 0xFF)
         }
