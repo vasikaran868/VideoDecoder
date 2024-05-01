@@ -11,6 +11,15 @@
         android:id="@+id/renderer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
+        android:visibility="invisible"
+        app:layout_constraintDimensionRatio="27:40"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"/>
+
+    <TextureView
+        android:id="@+id/tt"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
         app:layout_constraintDimensionRatio="27:40"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"/>

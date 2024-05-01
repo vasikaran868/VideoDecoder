@@ -4,8 +4,10 @@ import android.graphics.*
 import android.media.Image
 import android.media.MediaCodec
 import android.media.MediaFormat
+import android.os.Build
 import android.util.Log
 import android.view.Surface
+import androidx.annotation.RequiresApi
 import androidx.core.math.MathUtils.clamp
 import androidx.core.util.Preconditions.checkArgument
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +64,33 @@ fun mask(contentImageData: ContentImageData, maskImageData: MaskImageData): Bitm
     return yuv420ToBitmap(contentImageData, maskImageData.yBuffer)!!
 //    val maskGrayscaleArray = extractGrayscaleValues(maskImageData)!!
 //    return applyMask(contentBitmap, maskGrayscaleArray)
+}
+
+
+@RequiresApi(Build.VERSION_CODES.Q)
+fun showMediaFormat(format: MediaFormat){
+    format.keys.forEach {
+        try {
+            val a = format.getString(it)
+            "format: ${it} :- ${a}".rlog()
+        } catch (e: java.lang.Exception) {}
+        try {
+            val a = format.getInteger(it)
+            "format: ${it} :- ${a}".rlog()
+        } catch (e: java.lang.Exception) {}
+        try {
+            val a = format.getFloat(it)
+            "format: ${it} :- ${a}".rlog()
+        } catch (e: java.lang.Exception) {}
+        try {
+            val a = format.getLong(it)
+            "format: ${it} :- ${a}".rlog()
+        } catch (e: java.lang.Exception) {}
+        try {
+            val a = format.getByteBuffer(it)
+            "format: ${it} :- ${a}".rlog()
+        } catch (e: java.lang.Exception) {}
+    }
 }
 
 //private fun imageToBitmap(    image: Image): Bitmap? {

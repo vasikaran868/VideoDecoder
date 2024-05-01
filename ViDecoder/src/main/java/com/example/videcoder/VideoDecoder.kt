@@ -7,19 +7,18 @@ import android.net.Uri
 import android.os.Build
 import android.view.Surface
 import androidx.annotation.RequiresApi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.*
+import com.example.videcoder.googleTestCode.ExtractDecodeEditEncodeMuxTest
+import com.example.videcoder.googleTestCode.InputSurface
+import com.example.videcoder.googleTestCode.OutputSurface
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.transform
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.*
+import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicReference
 
-class VideoDecoder(val context: Context) {
+private const val MIME_TYPE = "video/avc"
+class VideoDecoder(val context: Context, val outputfile: File) {
 
     private var contentDecoder: MediaCodec? = null
     private var maskDecoder: MediaCodec? = null
@@ -31,6 +30,10 @@ class VideoDecoder(val context: Context) {
     val sharedFlow2Buffer = HashMap<Long, def>()
 
     val maskedFlow = MutableSharedFlow<FrameImageData>()
+
+    var contentEncoder: MediaCodec? = null
+    private var mediaMuxer: MediaMuxer? = null
+    private var trackIndex = -1
 
     init {
         GlobalScope.launch {
@@ -57,11 +60,110 @@ class VideoDecoder(val context: Context) {
         }
     }
 
+    fun trying(contentVideoUri: Uri){
+
+
+        ExtractDecodeEditEncodeMuxTest().apply {
+//                setSize(540,800)
+//                setOutputFile(file)
+//                setCopyVideo()
+//            val videoCodecInfo =
+//                ExtractDecodeEditEncodeMuxTest.selectCodec(
+//                    "video/avc" // H.264 Advanced Video Coding
+//                )
+//            val outputVideoFormat = MediaFormat.createVideoFormat(
+//                "video/avc" // H.264 Advanced Video Coding
+//                ,
+//                540,
+//                800
+//            )
+//            // Set some properties. Failing to specify some of these can cause the MediaCodec
+//            // configure() call to throw an unhelpful exception.
+//            // Set some properties. Failing to specify some of these can cause the MediaCodec
+//            // configure() call to throw an unhelpful exception.
+//            outputVideoFormat.setInteger(
+//                MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+//            )
+//            outputVideoFormat.setInteger(
+//                MediaFormat.KEY_BIT_RATE, 2000000 // 2Mbps
+//
+//            )
+//            outputVideoFormat.setInteger(
+//                MediaFormat.KEY_FRAME_RATE, 15 // 15fps
+//
+//            )
+//            outputVideoFormat.setInteger(
+//                MediaFormat.KEY_I_FRAME_INTERVAL, 10 // 10 seconds between I-frames
+//
+//            )
+//            val inputSurfaceReference = AtomicReference<Surface>()
+//            val videoEncoder = ExtractDecodeEditEncodeMuxTest.createVideoEncoder(
+//                videoCodecInfo, outputVideoFormat, inputSurfaceReference
+//            )
+//            val inputSurface = InputSurface(inputSurfaceReference.get())
+//            inputSurface.makeCurrent()
+//            // Create a MediaCodec for the decoder, based on the extractor's format.
+//            // Create a MediaCodec for the decoder, based on the extractor's format.
+//            val outputSurface = OutputSurface()
+//            outputSurface.changeFragmentShader(ExtractDecodeEditEncodeMuxTest.FRAGMENT_SHADER)
+//            testExtractDecodeEditEncodeMuxQVGA(outputfile, context, contentVideoUri)
+        }
+    }
+
+    val bufferList = mutableListOf<OutputBufferData>()
+
     @RequiresApi(Build.VERSION_CODES.Q)
-    suspend fun decode(uri: Uri, surface: Surface, coroutineScope: CoroutineScope){
+    suspend fun decode(uri: Uri, surface: Surface, coroutineScope: CoroutineScope, onComplete: (width: Int, height: Int, frames: MutableList<OutputBufferData>, mediaFormat: MediaFormat) -> Unit){
         val contentDataExtractor = MediaExtractor()
         contentDataExtractor.setDataSource(context, uri, null)
         val contentFormat = selectTrack(contentDataExtractor)
+        showMediaFormat(contentFormat)
+        try {
+            contentEncoder = MediaCodec.createEncoderByType(MIME_TYPE)
+            "encoder name...${contentEncoder?.name}".rlog()
+        } catch (e: IOException) {
+            "error creating encoder".rlog()
+            throw RuntimeException(e)
+        }
+        contentFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT,
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+        )
+        contentFormat.setInteger(MediaFormat.KEY_BIT_RATE, 7000000)
+//        format.setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+        contentFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 30)
+        contentEncoder?.setCallback( object : MediaCodec.Callback(){
+            override fun onInputBufferAvailable(p0: MediaCodec, p1: Int) {
+            }
+
+            override fun onOutputBufferAvailable(
+                eCodec: MediaCodec,
+                bufferId: Int,
+                eInfo: MediaCodec.BufferInfo
+            ) {
+                val outputBuffer = eCodec.getOutputBuffer(bufferId)
+                "encode output buffer...${eInfo.size}".rlog()
+                val ab = ByteBuffer.allocate(outputBuffer!!.capacity())
+                ab.put(outputBuffer)
+                if (outputBuffer != null) {
+                    mediaMuxer?.writeSampleData(trackIndex, ab, info)
+                }
+//                eCodec.releaseOutputBuffer(bufferId, false)
+            }
+
+            override fun onError(p0: MediaCodec, p1: MediaCodec.CodecException) {
+                TODO("Not yet implemented")
+            }
+
+            override fun onOutputFormatChanged(p0: MediaCodec, p1: MediaFormat) {
+                "output changed...${showMediaFormat(p1)}"
+            }
+
+        })
+        contentEncoder?.configure(contentFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        val mSurface = MediaCodec.createPersistentInputSurface()
+        contentEncoder?.setInputSurface(mSurface)
+        startMuxer()
+        contentEncoder?.start()
         contentDecoder = contentFormat.getString(MediaFormat.KEY_MIME)
             ?.let { MediaCodec.createDecoderByType(it) }
         val width = contentFormat.getInteger(MediaFormat.KEY_WIDTH)
@@ -72,6 +174,7 @@ class VideoDecoder(val context: Context) {
                 val sampleSize = contentDataExtractor.readSampleData(inputBuffer!!, 0)
                 if (sampleSize > 0) {
                     val presentationTime = contentDataExtractor.sampleTime
+                    "sample size...${sampleSize}...${presentationTime}...${inputBuffer.capacity()}".rlog()
                     codec.queueInputBuffer(inputBufferId, 0, sampleSize, presentationTime, 0)
                     contentDataExtractor.advance()
                 } else {
@@ -79,9 +182,10 @@ class VideoDecoder(val context: Context) {
                         inputBufferId,
                         0,
                         0,
-                        0,
+                        -1,
                         MediaCodec.BUFFER_FLAG_END_OF_STREAM
                     )
+//                    onComplete(width, height, bufferList, contentFormat)
                 }
             }
 
@@ -90,35 +194,45 @@ class VideoDecoder(val context: Context) {
                 outputBufferId: Int,
                 info: MediaCodec.BufferInfo
             ) {
-//                val buffer = codec.getOutputBuffer(outputBufferId)!!
-//                "content frame info...${info.presentationTimeUs}".rlog()\
-//                val b = ByteBuffer.allocate(buffer.capacity())
-//                b.put(buffer)
-                coroutineScope.launch {
-                    "content output coroutine launched...${info.presentationTimeUs}".rlog()
-                    codec.getOutputImage(outputBufferId)?.let {
-                        "content output got image...${info.presentationTimeUs}".rlog()
-                        sharedFlow1.emit(
-                            abc(
-                                ContentImageData(
-                                    it.width,
-                                    it.height,
-                                    yBuffer = ByteBuffer.allocate(it.planes[0].buffer.capacity()).apply { put(it.planes[0].buffer) },
-                                    uBuffer = ByteBuffer.allocate(it.planes[1].buffer.capacity()).apply { put(it.planes[1].buffer) },
-                                    vBuffer = ByteBuffer.allocate(it.planes[2].buffer.capacity()).apply { put(it.planes[2].buffer) },
-                                    uvRowStride = it.planes[1].rowStride,
-                                    uvPixelStride = it.planes[1].pixelStride
-                                ),
-                                info
-                            )
-                        )
-//                        yuv420ToBitmap(it)?.let { bMap ->
-//                            "content output got bitmap...${info.presentationTimeUs}".rlog()
-//                        }
-                    }
-                    codec.releaseOutputBuffer(outputBufferId, false)
+                val buffer = codec.getOutputBuffer(outputBufferId)!!
+                "content frame info...${info.presentationTimeUs}..${info.flags}...${info.size}".rlog()
+                val b = ByteBuffer.allocate(buffer.capacity())
+                b.put(buffer)
+                codec.releaseOutputBuffer(outputBufferId, true)
 
-                }
+//                if (info.flags != 4){
+//                    bufferList.add(OutputBufferData(b, info))
+//                    codec.releaseOutputBuffer(outputBufferId, false)
+//                } else {
+//                    codec.releaseOutputBuffer(outputBufferId, false)
+//                    releaseDecoder()
+//                    onComplete(width, height, bufferList, contentFormat)
+//                }
+//                coroutineScope.launch {
+//                    "content output coroutine launched...${info.presentationTimeUs}".rlog()
+//                    codec.getOutputImage(outputBufferId)?.let {
+//                        "content output got image...${info.presentationTimeUs}".rlog()
+//                        sharedFlow1.emit(
+//                            abc(
+//                                ContentImageData(
+//                                    it.width,
+//                                    it.height,
+//                                    yBuffer = ByteBuffer.allocate(it.planes[0].buffer.capacity()).apply { put(it.planes[0].buffer) },
+//                                    uBuffer = ByteBuffer.allocate(it.planes[1].buffer.capacity()).apply { put(it.planes[1].buffer) },
+//                                    vBuffer = ByteBuffer.allocate(it.planes[2].buffer.capacity()).apply { put(it.planes[2].buffer) },
+//                                    uvRowStride = it.planes[1].rowStride,
+//                                    uvPixelStride = it.planes[1].pixelStride
+//                                ),
+//                                info
+//                            )
+//                        )
+////                        yuv420ToBitmap(it)?.let { bMap ->
+////                            "content output got bitmap...${info.presentationTimeUs}".rlog()
+////                        }
+//                    }
+//                    codec.releaseOutputBuffer(outputBufferId, false)
+//
+//                }
             }
 
             override fun onError(p0: MediaCodec, p1: MediaCodec.CodecException) {
@@ -128,8 +242,33 @@ class VideoDecoder(val context: Context) {
             }
 
         })
-        contentDecoder?.configure(contentFormat, null, null, 0)
+        contentDecoder?.configure(contentFormat, mSurface, null, 0)
+        "decode output format...${contentDecoder?.outputFormat?.let { showMediaFormat(it) }}".rlog()
         contentDecoder?.start()
+
+//        while (true){
+//            val outputBufferId = contentEncoder?.dequeueOutputBuffer(info,10000);
+//            if (outputBufferId != null) {
+//                if (outputBufferId >= 0) {
+//                    val outputBuffer = contentEncoder?.getOutputBuffer(outputBufferId);
+//                    val  bufferFormat = contentEncoder?.getOutputFormat(outputBufferId);
+//                    "output buffer format...${outputBuffer?.capacity()}...${bufferFormat}...${bufferFormat?.keys?.joinToString { "$it , " }}".rlog()
+//                    if (outputBuffer != null) {
+//                        mediaMuxer?.writeSampleData(trackIndex, outputBuffer, info)
+//                    }
+//                    contentEncoder?.releaseOutputBuffer(outputBufferId, false);
+//                }
+//            }
+//        }
+    }
+
+    private fun startMuxer() {
+        mediaMuxer = MediaMuxer(outputfile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        val format = contentEncoder!!.outputFormat
+        "encode output format...${format}".rlog()
+        trackIndex = mediaMuxer?.addTrack(format)!!
+        "track index...${trackIndex}".rlog()
+        mediaMuxer?.start()
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
