@@ -202,7 +202,7 @@ public class ExtractDecodeEditEncodeMuxTest {
      * We encode several frames of a video test pattern using MediaCodec, then decode the output
      * with MediaCodec and do some simple checks.
      */
-    public void extractDecodeEditEncodeMux(Context context, Uri uri, Surface surface, OutputSurface oSurface, InputSurface iSurface, AtomicReference<Surface> inputSurfaceReference, MediaCodec videoEncoder) throws Exception {
+    public void extractDecodeEditEncodeMux(Context context, Uri uri, OutputSurface oSurface, InputSurface iSurface, AtomicReference<Surface> inputSurfaceReference, MediaCodec videoEncoder) throws Exception {
         // Exception that may be thrown during release.
         Exception exception = null;
         MediaCodecInfo videoCodecInfo = selectCodec(OUTPUT_VIDEO_MIME_TYPE);
@@ -432,7 +432,8 @@ public class ExtractDecodeEditEncodeMuxTest {
     public static MediaCodec createVideoEncoder(
             MediaCodecInfo codecInfo,
             MediaFormat format,
-            AtomicReference<Surface> surfaceReference) {
+            AtomicReference<Surface> surfaceReference
+    ) {
         MediaCodec encoder = null;
         try {
             encoder = MediaCodec.createByCodecName(codecInfo.getName());

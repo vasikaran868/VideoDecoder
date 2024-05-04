@@ -1,38 +1,52 @@
 package com.example.videodeocder
 
 import android.content.pm.PackageManager
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.view.TextureView
+import android.view.Surface
+import android.view.SurfaceView
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.AppCompatButton
+import androidx.appcompat.widget.LinearLayoutCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.example.videcoder.DroidRenderer
-import com.example.videcoder.VideoDecoder
-import com.example.videcoder.mask
-import com.example.videcoder.rlog
+import com.example.videcoder.*
+import com.example.videcoder.googleTestCode.ExtractDecodeEditEncodeMuxTest
+import com.example.videcoder.googleTestCode.InputSurface
+import com.example.videcoder.googleTestCode.OutputSurface
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicReference
 
 private const val REQUEST_PERMISSION_CODE = 123
 
 class MainActivity : AppCompatActivity() {
 
-    lateinit var renderer: DroidRenderer
-    lateinit var texture: TextureView
+    lateinit var renderer: SurfaceView
+    lateinit var texture: LinearLayoutCompat
     lateinit var videoUri: Uri
     lateinit var maskUri: Uri
     @RequiresApi(Build.VERSION_CODES.Q)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        renderer = findViewById<DroidRenderer>(R.id.renderer)
-        texture = findViewById<TextureView>(R.id.tt)
+        renderer = findViewById<SurfaceView>(R.id.renderer)
+        texture = findViewById<LinearLayoutCompat>(R.id.tt)
+//        texture.mSetRenderer()
         val previewBtn = findViewById<AppCompatButton>(R.id.previewBtn)
         val releaseBtn = findViewById<AppCompatButton>(R.id.releaseBtn)
         videoUri =
@@ -41,24 +55,121 @@ class MainActivity : AppCompatActivity() {
             Uri.parse("android.resource://" + this.packageName + "/" + R.raw.mask_video)
         "video uri...${videoUri}...${maskUri}".rlog()
         previewBtn.setOnClickListener {
-            if (hasWritePermission()){
-                renderer.renderPreview(lifecycleScope, maskUri, videoUri, texture)
 
-//                val downloadsDir: File =
-//                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            try {
+
+                val downloadsDir: File =
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+
+                if (!downloadsDir.exists()) {
+                    downloadsDir.mkdirs() // Create the directory if it doesn't exist
+                }
+                val file = File(downloadsDir, "output26.mp4")
+                ExtractDecodeEditEncodeMuxTest().apply {
+                    setSize(540, 800)
+                    setSource(com.example.videcoder.R.raw.content_video)
+                    setCopyVideo()
+                    setCopyAudio()
+                    setOutputFile(file)
+                    val videoCodecInfo =
+                        ExtractDecodeEditEncodeMuxTest.selectCodec(
+                            "video/avc" // H.264 Advanced Video Coding
+                        )
+                    val outputVideoFormat = MediaFormat.createVideoFormat(
+                        "video/avc", // H.264 Advanced Video Coding
+                        540,
+                        800
+                    )
+                    outputVideoFormat.setInteger(
+                        MediaFormat.KEY_COLOR_FORMAT,
+                        MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+                    )
+                    outputVideoFormat.setInteger(
+                        MediaFormat.KEY_BIT_RATE, 2000000 // 2Mbps
+
+                    )
+                    outputVideoFormat.setInteger(
+                        MediaFormat.KEY_FRAME_RATE,30
+                    )
+                    outputVideoFormat.setInteger(
+                        MediaFormat.KEY_I_FRAME_INTERVAL, 10 // 10 seconds between I-frames
+
+                    )
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val inputSurfaceReference: AtomicReference<Surface> = AtomicReference<Surface>();
+                        val mVideoEncoder = ExtractDecodeEditEncodeMuxTest.createVideoEncoder(
+                            videoCodecInfo, outputVideoFormat, inputSurfaceReference
+                        )
+                        val inputSurface = InputSurface(inputSurfaceReference.get())
+                        inputSurface.makeCurrent()
+                        val outputSurface = OutputSurface()
+//                        glView.setRenderer(MyRenderer())
+                        outputSurface.changeFragmentShader(ExtractDecodeEditEncodeMuxTest.FRAGMENT_SHADER)
+                        "output surface..${outputSurface.surface.hashCode()}".rlog()
+//                    "output surface..${this@DroidRenderer.holder.surface}".rlog()
+                        extractDecodeEditEncodeMux(
+                            this@MainActivity,
+                            Uri.parse("android.resource://" + "com.example.videodeocder" + "/" + com.example.videcoder.R.raw.content_video),
+                            outputSurface,
+                            inputSurface,
+                            inputSurfaceReference,
+                            mVideoEncoder
+                        );
+
+                    }
+//                    "input surface..${inputSurfaceReference.get().hashCode()}".rlog()
+//                    val glView = MyGlSurfaceView(this@MainActivity)
+////                    val inputSurfaceReference: AtomicReference<Surface> = AtomicReference<Surface>();
+////                    var inputSurface: InputSurface? = null
+////                    var outputSurface: Out
+//                    glView.mSetRenderer(
+//                        GlRenderer(
+//                            onSurfaceCreated = { render, eContext ->
 //
-//                if (!downloadsDir.exists()) {
-//                    downloadsDir.mkdirs() // Create the directory if it doesn't exist
-//                }
-//                val file = File(downloadsDir, "output7.mp4")
-//                VideoDecoder(this, file).let {
-//                    it.trying(videoUri)
-//                }
-            } else {
-                requestWritePermission()
+//                            }
+//                        )
+//                    )
+//                    glView.layoutParams =  ViewGroup.LayoutParams(
+//                        ViewGroup.LayoutParams.MATCH_PARENT,
+//                        ViewGroup.LayoutParams.MATCH_PARENT
+//                    )
+//                    texture.addView(glView)
+                }
+            } catch (e: IOException) {
+                e.printStackTrace()
             }
+
+
+//            texture.mSetRenderer()
+//            texture.setRenderer(MyRenderer())
+//            val renderer = MyRenderer()
+//            texture.setEGLContextClientVersion(2)
+//            texture.preserveEGLContextOnPause = true
+//            texture.setRenderer(renderer)
+
+//            if (hasWritePermission()){
+//                renderer.renderPreview(lifecycleScope, maskUri, videoUri, texture)
+//
+////                val downloadsDir: File =
+////                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+////
+////                if (!downloadsDir.exists()) {
+////                    downloadsDir.mkdirs() // Create the directory if it doesn't exist
+////                }
+////                val file = File(downloadsDir, "output7.mp4")
+////                VideoDecoder(this, file).let {
+////                    it.trying(videoUri)
+////                }
+//            } else {
+//                requestWritePermission()
+//            }
         }
 
+    }
+
+    override fun onResume() {
+        super.onResume()
+        texture.visibility = View.VISIBLE
     }
 
     // Check if the app has permission to write to external storage
@@ -88,7 +199,7 @@ class MainActivity : AppCompatActivity() {
         if (requestCode == REQUEST_PERMISSION_CODE) {
             if (grantResults.size > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 // Permission granted, proceed to create file
-                renderer.renderPreview(lifecycleScope,maskUri, videoUri, texture)
+//                renderer.renderPreview(lifecycleScope,maskUri, videoUri, texture)
             } else {
                 // Permission denied
                 Toast.makeText(this, "Permission denied", Toast.LENGTH_SHORT).show()

@@ -15,7 +15,7 @@ import android.util.Log;
 /**
  * Code for rendering a texture onto a surface using OpenGL ES 2.0.
  */
-class TextureRender {
+public class TextureRender {
     private static final String TAG = "TextureRender";
     private static final int FLOAT_SIZE_BYTES = 4;
     private static final int TRIANGLE_VERTICES_DATA_STRIDE_BYTES = 5 * FLOAT_SIZE_BYTES;
@@ -68,6 +68,7 @@ class TextureRender {
     public void drawFrame(SurfaceTexture st) {
         checkGlError("onDrawFrame start");
         st.getTransformMatrix(mSTMatrix);
+        Log.v("Debug Tag", "matrix..." + "..." + mSTMatrix.toString());
         GLES20.glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
         GLES20.glClear(GLES20.GL_DEPTH_BUFFER_BIT | GLES20.GL_COLOR_BUFFER_BIT);
         GLES20.glUseProgram(mProgram);

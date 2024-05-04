@@ -7,7 +7,7 @@
     tools:context=".MainActivity">
 
 
-    <com.example.videcoder.DroidRenderer
+    <SurfaceView
         android:id="@+id/renderer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -16,7 +16,7 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toBottomOf="parent"/>
 
-    <TextureView
+    <androidx.appcompat.widget.LinearLayoutCompat
         android:id="@+id/tt"
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -30,7 +30,7 @@
         android:layout_height="wrap_content"
         android:text="preview"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/renderer" />
+        app:layout_constraintTop_toBottomOf="@+id/tt" />
 
     <androidx.appcompat.widget.AppCompatButton
         android:id="@+id/releaseBtn"

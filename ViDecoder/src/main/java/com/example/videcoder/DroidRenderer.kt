@@ -56,7 +56,7 @@ class DroidRenderer: SurfaceView, SurfaceHolder.Callback {
 
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    fun renderPreview(scope : CoroutineScope, maskVideoUri: Uri, contentVideoUri: Uri, textureView: TextureView){
+    fun renderPreview(scope : CoroutineScope, maskVideoUri: Uri, contentVideoUri: Uri, glView: GLSurfaceView){
         try {
             scope.launch(Dispatchers.IO) {
                 ExtractDecodeEditEncodeMuxTest().apply {
@@ -90,25 +90,25 @@ class DroidRenderer: SurfaceView, SurfaceHolder.Callback {
 
                     )
                     val inputSurfaceReference:  AtomicReference<Surface> = AtomicReference<Surface>();
-                    val mVideoEncoder = ExtractDecodeEditEncodeMuxTest.createVideoEncoder(
-                        videoCodecInfo, outputVideoFormat, inputSurfaceReference
-                    )
+//                    val mVideoEncoder = ExtractDecodeEditEncodeMuxTest.createVideoEncoder(
+//                        videoCodecInfo, outputVideoFormat, inputSurfaceReference,
+//                    )
                     "input surface..${inputSurfaceReference.get().hashCode()}".rlog()
-                    val inputSurface = InputSurface(inputSurfaceReference.get())
-                    inputSurface.makeCurrent()
-                    val outputSurface = OutputSurface()
-                    outputSurface.changeFragmentShader(ExtractDecodeEditEncodeMuxTest.FRAGMENT_SHADER)
-                    "output surface..${outputSurface.surface.hashCode()}".rlog()
-                    "output surface..${this@DroidRenderer.holder.surface}".rlog()
-                    extractDecodeEditEncodeMux(
-                        context,
-                        contentVideoUri,
-                        this@DroidRenderer.holder.surface,
-                        outputSurface,
-                        inputSurface,
-                        inputSurfaceReference,
-                        mVideoEncoder
-                    );
+//                    val inputSurface = InputSurface(inputSurfaceReference.get())
+//                    inputSurface.makeCurrent()
+//                    val outputSurface = OutputSurface()
+//                    outputSurface.changeFragmentShader(ExtractDecodeEditEncodeMuxTest.FRAGMENT_SHADER)
+//                    "output surface..${outputSurface.surface.hashCode()}".rlog()
+//                    "output surface..${this@DroidRenderer.holder.surface}".rlog()
+//                    extractDecodeEditEncodeMux(
+//                        context,
+//                        contentVideoUri,
+//                        this@DroidRenderer.holder.surface,
+//                        outputSurface,
+//                        inputSurface,
+//                        inputSurfaceReference,
+//                        mVideoEncoder
+//                    );
                 }
             }
         } catch (e: IOException) {
