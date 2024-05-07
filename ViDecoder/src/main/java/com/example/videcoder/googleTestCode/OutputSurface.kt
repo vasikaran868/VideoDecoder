@@ -3,6 +3,7 @@ package com.example.videcoder.googleTestCode
 import android.graphics.SurfaceTexture
 import android.opengl.EGL14
 import android.opengl.EGLConfig
+import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.os.Handler
 import android.os.Looper
@@ -10,9 +11,11 @@ import android.util.Log
 import android.view.Surface
 import com.example.videcoder.GlRenderer
 import com.example.videcoder.rlog
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import javax.microedition.khronos.opengles.GL10
 
-class OutputSurface() : GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener {
+class OutputSurface(val renderer: GlRenderer, val glView: GLSurfaceView) : GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableListener {
     private var mEGLDisplay = EGL14.EGL_NO_DISPLAY
     private var mEGLContext = EGL14.EGL_NO_CONTEXT
     private var mEGLSurface = EGL14.EGL_NO_SURFACE
@@ -41,7 +44,6 @@ class OutputSurface() : GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableL
     init {
         setup()
     }
-
     /**
      * Creates an OutputSurface using the current EGL context (rather than establishing a
      * new one).  Creates a Surface that can be passed to MediaCodec.configure().
@@ -215,6 +217,12 @@ class OutputSurface() : GLSurfaceView.Renderer, SurfaceTexture.OnFrameAvailableL
      */
     fun drawImage() {
         mTextureRender!!.drawFrame(mSurfaceTexture)
+        "getting bitmap".rlog()
+        val buf = ByteBuffer.allocateDirect(540 * 800 * 4)
+        buf.order(ByteOrder.LITTLE_ENDIAN)
+        GLES20.glReadPixels(0, 0, 540, 800, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf)
+        buf.rewind()
+        renderer.queueFrame(buf)
     }
 
     override fun onFrameAvailable(st: SurfaceTexture) {

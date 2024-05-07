@@ -3,13 +3,18 @@ package com.example.videcoder.googleTestCode;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.ShortBuffer;
+
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.SurfaceTexture;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
+import android.opengl.GLUtils;
 import android.opengl.Matrix;
 import android.util.Log;
 /**
@@ -27,6 +32,18 @@ public class TextureRender {
             1.0f, -1.0f, 0, 1.f, 0.f,
             -1.0f,  1.0f, 0, 0.f, 1.f,
             1.0f,  1.0f, 0, 1.f, 1.f,
+    };
+
+    private FloatBuffer databuffer;
+    private FloatBuffer texturebuffer;
+
+
+    private float[] TEXTURE_COORDINATES = {
+            // x,    y
+            0.0f, 1.0f,
+            0.0f, 0.0f,
+            1.0f, 0.0f,
+            1.0f, 1.0f
     };
     private FloatBuffer mTriangleVertices;
     private static final String VERTEX_SHADER =
@@ -47,6 +64,8 @@ public class TextureRender {
                     "void main() {\n" +
                     "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
                     "}\n";
+
+
     private float[] mMVPMatrix = new float[16];
     private float[] mSTMatrix = new float[16];
     private int mProgram;
@@ -55,6 +74,7 @@ public class TextureRender {
     private int muSTMatrixHandle;
     private int maPositionHandle;
     private int maTextureHandle;
+
     public TextureRender() {
         mTriangleVertices = ByteBuffer.allocateDirect(
                         mTriangleVerticesData.length * FLOAT_SIZE_BYTES)
@@ -138,6 +158,59 @@ public class TextureRender {
         checkGlError("glTexParameter");
         Log.v("Debug Tag", "initialised gl state");
     }
+
+//    public void mSurfaceCreated() {
+//        mProgram = createProgram(VERTEX_SHADER_2, FRAGMENT_SHADER_2D);
+//        if (mProgram == 0) {
+//            throw new RuntimeException("failed creating program");
+//        }
+//        quadPositionHandle = GLES20.glGetAttribLocation(program, "a_Position");
+//
+//        //Texture position handler
+//        texPositionHandle = GLES20.glGetAttribLocation(program, "a_TexCoord");
+//
+//        //Texture uniform handler
+//        textureUniformHandle = GLES20.glGetUniformLocation(program, "u_Texture");
+//
+//        //View projection transformation matrix handler
+//        viewProjectionMatrixHandle = GLES20.glGetUniformLocation(program, "uVPMatrix");
+////        maPositionHandle = GLES20.glGetAttribLocation(mProgram, "a_Position");
+////        checkGlError("glGetAttribLocation aPosition");
+////        if (maPositionHandle == -1) {
+////            throw new RuntimeException("Could not get attrib location for aPosition");
+////        }
+////        maTextureHandle = GLES20.glGetAttribLocation(mProgram, "a_TexCoord");
+////        checkGlError("glGetAttribLocation aTextureCoord");
+////        if (maTextureHandle == -1) {
+////            throw new RuntimeException("Could not get attrib location for aTextureCoord");
+////        }
+////        muMVPMatrixHandle = GLES20.glGetUniformLocation(mProgram, "u_Texture");
+////        checkGlError("glGetUniformLocation uMVPMatrix");
+////        if (muMVPMatrixHandle == -1) {
+////            throw new RuntimeException("Could not get attrib location for uMVPMatrix");
+////        }
+////        muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uVPMatrix");
+////        checkGlError("glGetUniformLocation uSTMatrix");
+////        if (muSTMatrixHandle == -1) {
+////            throw new RuntimeException("Could not get attrib location for uSTMatrix");
+////        }
+//        Log.v("Debug Tag", "initialised gl state");
+//    }
+
+//    public void drawByteBuffer(ByteBuffer bb, Integer width, Integer height){
+//        int[] textures = new int[1];
+//        GLES20.glGenTextures(1, textures, 0);
+//        mTextureID = textures[0];
+//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureID);
+//        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bb);
+//        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+//        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+//        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
+//        GLES20.glEnable(GLES20.GL_TEXTURE_2D);
+//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureID);
+//        GLES20.glDisable(GLES20.GL_TEXTURE_2D);
+//    }
+
     /**
      * Replaces the fragment shader.
      */
