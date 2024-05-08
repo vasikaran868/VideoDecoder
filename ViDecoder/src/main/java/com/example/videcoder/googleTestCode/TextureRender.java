@@ -33,18 +33,6 @@ public class TextureRender {
             -1.0f,  1.0f, 0, 0.f, 1.f,
             1.0f,  1.0f, 0, 1.f, 1.f,
     };
-
-    private FloatBuffer databuffer;
-    private FloatBuffer texturebuffer;
-
-
-    private float[] TEXTURE_COORDINATES = {
-            // x,    y
-            0.0f, 1.0f,
-            0.0f, 0.0f,
-            1.0f, 0.0f,
-            1.0f, 1.0f
-    };
     private FloatBuffer mTriangleVertices;
     private static final String VERTEX_SHADER =
             "uniform mat4 uMVPMatrix;\n" +
@@ -70,6 +58,7 @@ public class TextureRender {
     private float[] mSTMatrix = new float[16];
     private int mProgram;
     private int mTextureID = -12345;
+    private int rMaskTextureID = -12345;
     private int muMVPMatrixHandle;
     private int muSTMatrixHandle;
     private int maPositionHandle;
@@ -85,7 +74,11 @@ public class TextureRender {
     public int getTextureId() {
         return mTextureID;
     }
-    public void drawFrame(SurfaceTexture st) {
+
+    public int getMaskTextureId() {
+        return rMaskTextureID;
+    }
+    public void drawFrame(SurfaceTexture st, SurfaceTexture maskSt) {
         checkGlError("onDrawFrame start");
         st.getTransformMatrix(mSTMatrix);
         Log.v("Debug Tag", "matrix..." + "..." + mSTMatrix.toString());
@@ -142,10 +135,11 @@ public class TextureRender {
         if (muSTMatrixHandle == -1) {
             throw new RuntimeException("Could not get attrib location for uSTMatrix");
         }
-        int[] textures = new int[1];
-        GLES20.glGenTextures(1, textures, 0);
+        int[] textures = new int[2];
+        GLES20.glGenTextures(2, textures, 0);
         mTextureID = textures[0];
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
+        rMaskTextureID = textures[1];
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, rMaskTextureID);
         checkGlError("glBindTexture mTextureID");
         GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER,
                 GLES20.GL_NEAREST);

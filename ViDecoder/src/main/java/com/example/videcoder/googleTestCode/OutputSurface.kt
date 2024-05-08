@@ -20,15 +20,19 @@ class OutputSurface(val renderer: GlRenderer, val glView: GLSurfaceView) : GLSur
     private var mEGLContext = EGL14.EGL_NO_CONTEXT
     private var mEGLSurface = EGL14.EGL_NO_SURFACE
     var mSurfaceTexture: SurfaceTexture? = null
+    var rMaskSurfaceTexture: SurfaceTexture? = null
 
     /**
      * Returns the Surface that we draw onto.
      */
     var surface: Surface? = null
+    var maskSurface: Surface? = null
     private val mFrameSyncObject = Object()// guards mFrameAvailable
     private var mFrameAvailable = false
     private var mTextureRender: TextureRender? = null
     private var frameCount = 0
+    private var mFrameAvailableCount = 0
+    private val TOTAL_SURFACES = 2
 
     /**
      * Creates an OutputSurface backed by a pbuffer with the specifed dimensions.  The new
@@ -65,6 +69,7 @@ class OutputSurface(val renderer: GlRenderer, val glView: GLSurfaceView) : GLSur
 //        // causes the native finalizer to run.
 //        if (VERBOSE) Log.d(TAG, "textureID=" + mTextureRender!!.textureId)
         mSurfaceTexture = SurfaceTexture(mTextureRender!!.textureId)
+        rMaskSurfaceTexture = SurfaceTexture(mTextureRender!!.maskTextureId)
         // This doesn't work if OutputSurface is created on the thread that CTS started for
         // these test cases.
         //
@@ -76,8 +81,13 @@ class OutputSurface(val renderer: GlRenderer, val glView: GLSurfaceView) : GLSur
         //
         // Java language note: passing "this" out of a constructor is generally unwise,
         // but we should be able to get away with it here.
+        val l = Looper.myLooper()
+        "otu surface looper...${l}".rlog()
+
         mSurfaceTexture!!.setOnFrameAvailableListener(this, Handler(Looper.getMainLooper()))
+        rMaskSurfaceTexture!!.setOnFrameAvailableListener(this, Handler(Looper.getMainLooper()))
         surface = Surface(mSurfaceTexture)
+        maskSurface = Surface(rMaskSurfaceTexture)
     }
 
     /**
@@ -191,32 +201,33 @@ class OutputSurface(val renderer: GlRenderer, val glView: GLSurfaceView) : GLSur
 //        Log.v("Debug Tag", "creation looper" + b);
         val TIMEOUT_MS = 5000
         synchronized(mFrameSyncObject) {
-            while (!mFrameAvailable) {
+            while (mFrameAvailableCount < TOTAL_SURFACES) {
                 try {
-                    // Wait for onFrameAvailable() to signal us.  Use a timeout to avoid
-                    // stalling the test if it doesn't arrive.
+                    // Wait for onFrameAvailable() to signal us. Use a timeout to avoid stalling the test if it doesn't arrive.
                     mFrameSyncObject.wait(TIMEOUT_MS.toLong())
-                    if (!mFrameAvailable) {
-                        // TODO: if "spurious wakeup", continue while loop
-                        throw RuntimeException("Surface frame wait timed out")
+                    if (mFrameAvailableCount < TOTAL_SURFACES) {
+                        // Timeout occurred or not all SurfaceTextures have signaled.
+                        throw RuntimeException("Surface frame wait timed out or not all SurfaceTextures have signaled.")
                     }
                 } catch (ie: InterruptedException) {
                     // shouldn't happen
                     throw RuntimeException(ie)
                 }
             }
-            mFrameAvailable = false
+            // Reset the count for the next iteration
+            mFrameAvailableCount = 0
         }
         // Latch the data.
         mTextureRender?.checkGlError("before updateTexImage")
         mSurfaceTexture?.updateTexImage()
+        rMaskSurfaceTexture?.updateTexImage()
     }
 
     /**
      * Draws the data from SurfaceTexture onto the current EGL surface.
      */
     fun drawImage() {
-        mTextureRender!!.drawFrame(mSurfaceTexture)
+        mTextureRender!!.drawFrame(mSurfaceTexture, rMaskSurfaceTexture)
         "getting bitmap".rlog()
         val buf = ByteBuffer.allocateDirect(540 * 800 * 4)
         buf.order(ByteOrder.LITTLE_ENDIAN)
@@ -226,15 +237,15 @@ class OutputSurface(val renderer: GlRenderer, val glView: GLSurfaceView) : GLSur
     }
 
     override fun onFrameAvailable(st: SurfaceTexture) {
-        if (VERBOSE) Log.d(TAG, "new frame available")
+//        if (VERBOSE) Log.d(TAG, "new frame available")
         frameCount++
-        Log.v("Debug Tag", "$frameCount frame available called")
+        Log.v("Debug Tag", "frame $frameCount available called..${st.hashCode()}")
         synchronized(mFrameSyncObject) {
-            if (mFrameAvailable) {
-                throw RuntimeException("mFrameAvailable already set, frame could be dropped")
+            mFrameAvailableCount++
+            if (mFrameAvailableCount >= TOTAL_SURFACES) {
+                // Both SurfaceTextures have signaled, notify the waiting thread.
+                mFrameSyncObject.notifyAll()
             }
-            mFrameAvailable = true
-            mFrameSyncObject.notifyAll()
         }
     }
 

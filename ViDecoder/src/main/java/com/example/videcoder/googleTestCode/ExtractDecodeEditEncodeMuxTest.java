@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 @TargetApi(18)
 public class ExtractDecodeEditEncodeMuxTest {
-    private static final String TAG = ExtractDecodeEditEncodeMuxTest.class.getSimpleName();
+    private static final String TAG = "Debug Tag";
     private static final boolean VERBOSE = false; // lots of logging
     /** How long to wait for the next buffer to become available. */
     private static final int TIMEOUT_USEC = 10000;
@@ -202,7 +202,7 @@ public class ExtractDecodeEditEncodeMuxTest {
      * We encode several frames of a video test pattern using MediaCodec, then decode the output
      * with MediaCodec and do some simple checks.
      */
-    public void extractDecodeEditEncodeMux(Context context, Uri uri, OutputSurface oSurface, InputSurface iSurface, AtomicReference<Surface> inputSurfaceReference, MediaCodec videoEncoder) throws Exception {
+    public void extractDecodeEditEncodeMux(Context context, Uri uri, Uri maskUri, OutputSurface oSurface, InputSurface iSurface, AtomicReference<Surface> inputSurfaceReference, MediaCodec videoEncoder) throws Exception {
         // Exception that may be thrown during release.
         Exception exception = null;
         MediaCodecInfo videoCodecInfo = selectCodec(OUTPUT_VIDEO_MIME_TYPE);
@@ -220,9 +220,11 @@ public class ExtractDecodeEditEncodeMuxTest {
         }
         if (VERBOSE) Log.d(TAG, "audio found codec: " + audioCodecInfo.getName());
         MediaExtractor videoExtractor = null;
+        MediaExtractor maskVideoExtractor = null;
         MediaExtractor audioExtractor = null;
 //        OutputSurface outputSurface = null;
         MediaCodec videoDecoder = null;
+        MediaCodec maskVideoDecoder = null;
         MediaCodec audioDecoder = null;
 //        MediaCodec videoEncoder = null;
         MediaCodec audioEncoder = null;
@@ -230,9 +232,12 @@ public class ExtractDecodeEditEncodeMuxTest {
 //        InputSurface inputSurface = null;
         if (mCopyVideo) {
             videoExtractor = createExtractor(context, uri);
+            maskVideoExtractor = createExtractor(context, maskUri);
             int videoInputTrack = getAndSelectVideoTrackIndex(videoExtractor);
+            int maskVideoInputTrack = getAndSelectVideoTrackIndex(maskVideoExtractor);
 //                assertTrue("missing video track in test video", videoInputTrack != -1);
             MediaFormat inputFormat = videoExtractor.getTrackFormat(videoInputTrack);
+            MediaFormat maskVideoInputFormat = maskVideoExtractor.getTrackFormat(maskVideoInputTrack);
             // We avoid the device-specific limitations on width and height by using values
             // that are multiples of 16, which all tested devices seem to be able to handle.
 //            MediaFormat outputVideoFormat =
@@ -259,6 +264,7 @@ public class ExtractDecodeEditEncodeMuxTest {
 //            outputSurface = new OutputSurface();
 //            outputSurface.changeFragmentShader(FRAGMENT_SHADER);
             videoDecoder = createVideoDecoder(inputFormat, oSurface.getSurface());
+            maskVideoDecoder = createVideoDecoder(maskVideoInputFormat, oSurface.getMaskSurface());
         }
         if (mCopyAudio) {
             audioExtractor = createExtractor(context, uri);
@@ -281,8 +287,10 @@ public class ExtractDecodeEditEncodeMuxTest {
         muxer = createMuxer();
         doExtractDecodeEditEncodeMux(
                 videoExtractor,
+                maskVideoExtractor,
                 audioExtractor,
                 videoDecoder,
+                maskVideoDecoder,
                 videoEncoder,
                 audioDecoder,
                 audioEncoder,
@@ -518,8 +526,10 @@ public class ExtractDecodeEditEncodeMuxTest {
      */
     private void doExtractDecodeEditEncodeMux(
             MediaExtractor videoExtractor,
+            MediaExtractor maskVideoExtractor,
             MediaExtractor audioExtractor,
             MediaCodec videoDecoder,
+            MediaCodec maskVideoDecoder,
             MediaCodec videoEncoder,
             MediaCodec audioDecoder,
             MediaCodec audioEncoder,
@@ -528,15 +538,21 @@ public class ExtractDecodeEditEncodeMuxTest {
             OutputSurface outputSurface) {
         Log.v("Debug Tag", "reached the function");
         ByteBuffer[] videoDecoderInputBuffers = null;
+        ByteBuffer[] maskVideoDecoderInputBuffers = null;
         ByteBuffer[] videoDecoderOutputBuffers = null;
+        ByteBuffer[] maskVideoDecoderOutputBuffers = null;
         ByteBuffer[] videoEncoderOutputBuffers = null;
         MediaCodec.BufferInfo videoDecoderOutputBufferInfo = null;
+        MediaCodec.BufferInfo maskVideoDecoderOutputBufferInfo = null;
         MediaCodec.BufferInfo videoEncoderOutputBufferInfo = null;
         if (mCopyVideo) {
             videoDecoderInputBuffers = videoDecoder.getInputBuffers();
+            maskVideoDecoderInputBuffers = maskVideoDecoder.getInputBuffers();
             videoDecoderOutputBuffers = videoDecoder.getOutputBuffers();
+            maskVideoDecoderOutputBuffers = maskVideoDecoder.getOutputBuffers();
             videoEncoderOutputBuffers = videoEncoder.getOutputBuffers();
             videoDecoderOutputBufferInfo = new MediaCodec.BufferInfo();
+            maskVideoDecoderOutputBufferInfo = new MediaCodec.BufferInfo();
             videoEncoderOutputBufferInfo = new MediaCodec.BufferInfo();
         }
         ByteBuffer[] audioDecoderInputBuffers = null;
@@ -555,6 +571,7 @@ public class ExtractDecodeEditEncodeMuxTest {
         }
         // We will get these from the decoders when notified of a format change.
         MediaFormat decoderOutputVideoFormat = null;
+        MediaFormat maskDecoderOutputVideoFormat = null;
         MediaFormat decoderOutputAudioFormat = null;
         // We will get these from the encoders when notified of a format change.
         MediaFormat encoderOutputVideoFormat = null;
@@ -564,7 +581,9 @@ public class ExtractDecodeEditEncodeMuxTest {
         int outputAudioTrack = -1;
         // Whether things are done on the video side.
         boolean videoExtractorDone = false;
+        boolean maskVideoExtractorDone = false;
         boolean videoDecoderDone = false;
+        boolean maskVideoDecoderDone = false;
         boolean videoEncoderDone = false;
         // Whether things are done on the audio side.
         boolean audioExtractorDone = false;
@@ -574,6 +593,7 @@ public class ExtractDecodeEditEncodeMuxTest {
         int pendingAudioDecoderOutputBufferIndex = -1;
         boolean muxing = false;
         int videoExtractedFrameCount = 0;
+        int maskVideoExtractedFrameCount = 0;
         int videoDecodedFrameCount = 0;
         int videoEncodedFrameCount = 0;
         int audioExtractedFrameCount = 0;
@@ -647,6 +667,46 @@ public class ExtractDecodeEditEncodeMuxTest {
                 // We extracted a frame, let's try something else next.
                 break;
             }
+            while (mCopyVideo && !maskVideoExtractorDone
+                    && (encoderOutputVideoFormat == null || muxing)) {
+                int maskDecoderInputBufferIndex = maskVideoDecoder.dequeueInputBuffer(TIMEOUT_USEC);
+                if (maskDecoderInputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    if (VERBOSE) Log.d(TAG, "no mask video decoder input buffer");
+                    break;
+                }
+                if (VERBOSE) {
+                    Log.d(TAG, "video decoder: returned input buffer: " + maskDecoderInputBufferIndex);
+                }
+                ByteBuffer maskDecoderInputBuffer = maskVideoDecoderInputBuffers[maskDecoderInputBufferIndex];
+                int size = maskVideoExtractor.readSampleData(maskDecoderInputBuffer, 0);
+                long presentationTime = maskVideoExtractor.getSampleTime();
+                if (VERBOSE) {
+                    Log.d(TAG, "video extractor: returned buffer of size " + size);
+                    Log.d(TAG, "video extractor: returned buffer for time " + presentationTime);
+                }
+                if (size >= 0) {
+                    maskVideoDecoder.queueInputBuffer(
+                            maskDecoderInputBufferIndex,
+                            0,
+                            size,
+                            presentationTime,
+                            maskVideoExtractor.getSampleFlags());
+                }
+                maskVideoExtractorDone = !maskVideoExtractor.advance();
+                if (videoExtractorDone) {
+                    int mEosBufferIndex = maskVideoDecoder.dequeueInputBuffer(TIMEOUT_USEC);
+                    if (VERBOSE) Log.d(TAG, "video extractor: EOS");
+                    maskVideoDecoder.queueInputBuffer(
+                            mEosBufferIndex,
+                            0,
+                            0,
+                            0,
+                            MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                }
+                maskVideoExtractedFrameCount++;
+                // We extracted a frame, let's try something else next.
+                break;
+            }
             // Extract audio from file and feed to decoder.
             // Do not extract audio if we have determined the output format but we are not yet
             // ready to mux the frames.
@@ -696,13 +756,25 @@ public class ExtractDecodeEditEncodeMuxTest {
                 int decoderOutputBufferIndex =
                         videoDecoder.dequeueOutputBuffer(
                                 videoDecoderOutputBufferInfo, TIMEOUT_USEC);
+                int maskDecoderOutputBufferIndex =
+                        maskVideoDecoder.dequeueOutputBuffer(
+                                maskVideoDecoderOutputBufferInfo, TIMEOUT_USEC);
                 if (decoderOutputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
                     if (VERBOSE) Log.d(TAG, "no video decoder output buffer");
+                    break;
+                }
+                if (maskDecoderOutputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    if (VERBOSE) Log.d(TAG, "no mask video decoder output buffer");
                     break;
                 }
                 if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
                     if (VERBOSE) Log.d(TAG, "video decoder: output buffers changed");
                     videoDecoderOutputBuffers = videoDecoder.getOutputBuffers();
+                    break;
+                }
+                if (maskDecoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+                    if (VERBOSE) Log.d(TAG, "video decoder: output buffers changed");
+                    maskVideoDecoderOutputBuffers = maskVideoDecoder.getOutputBuffers();
                     break;
                 }
                 if (decoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
@@ -713,27 +785,53 @@ public class ExtractDecodeEditEncodeMuxTest {
                     }
                     break;
                 }
+                if (maskDecoderOutputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    maskDecoderOutputVideoFormat = maskVideoDecoder.getOutputFormat();
+                    if (VERBOSE) {
+                        Log.d(TAG, "video decoder: output format changed: "
+                                + maskDecoderOutputVideoFormat);
+                    }
+                    break;
+                }
                 if (VERBOSE) {
                     Log.d(TAG, "video decoder: returned output buffer: "
                             + decoderOutputBufferIndex);
                     Log.d(TAG, "video decoder: returned buffer of size "
                             + videoDecoderOutputBufferInfo.size);
+                    Log.d(TAG, "mask video decoder: returned mask output buffer: "
+                            + maskDecoderOutputBufferIndex);
+                    Log.d(TAG, "mask video decoder: returned msak buffer of size "
+                            + maskVideoDecoderOutputBufferInfo.size);
                 }
-                ByteBuffer decoderOutputBuffer =
-                        videoDecoderOutputBuffers[decoderOutputBufferIndex];
+//                ByteBuffer decoderOutputBuffer =
+//                        videoDecoderOutputBuffers[decoderOutputBufferIndex];
+//                ByteBuffer maskDecoderOutputBuffer =
+//                        maskVideoDecoderOutputBuffers[maskDecoderOutputBufferIndex];
                 if ((videoDecoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG)
                         != 0) {
                     if (VERBOSE) Log.d(TAG, "video decoder: codec config buffer");
                     videoDecoder.releaseOutputBuffer(decoderOutputBufferIndex, false);
                     break;
                 }
+                if ((maskVideoDecoderOutputBufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG)
+                        != 0) {
+                    if (VERBOSE) Log.d(TAG, "mask video decoder: codec config buffer");
+                    maskVideoDecoder.releaseOutputBuffer(maskDecoderOutputBufferIndex, false);
+                    break;
+                }
                 if (VERBOSE) {
                     Log.d(TAG, "video decoder: returned buffer for time "
                             + videoDecoderOutputBufferInfo.presentationTimeUs);
                 }
+                if (VERBOSE) {
+                    Log.d(TAG, "mask video decoder: returned buffer for time "
+                            + maskVideoDecoderOutputBufferInfo.presentationTimeUs);
+                }
                 boolean render = videoDecoderOutputBufferInfo.size != 0;
+                boolean maskRender = maskVideoDecoderOutputBufferInfo.size != 0;
                 videoDecoder.releaseOutputBuffer(decoderOutputBufferIndex, render);
-                if (render) {
+                maskVideoDecoder.releaseOutputBuffer(maskDecoderOutputBufferIndex, maskRender);
+                if (render && maskRender) {
                     if (VERBOSE) Log.d(TAG, "output surface: await new image");
                     outputSurface.awaitNewImage();
                     // Edit the frame and send it to the encoder.

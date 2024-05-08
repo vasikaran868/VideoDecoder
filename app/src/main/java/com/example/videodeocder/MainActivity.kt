@@ -51,9 +51,9 @@ class MainActivity : AppCompatActivity() {
         val releaseBtn = findViewById<AppCompatButton>(R.id.releaseBtn)
         videoUri =
             Uri.parse("android.resource://" + this.packageName + "/" + R.raw.content_video)
-        maskUri =
-            Uri.parse("android.resource://" + this.packageName + "/" + R.raw.mask_video)
-        "video uri...${videoUri}...${maskUri}".rlog()
+//        maskUri =
+//            Uri.parse("android.resource://" + this.packageName + "/" + com.example.videcoder.R.raw.mask_video)
+//        "video uri...${videoUri}...${maskUri}".rlog()
         previewBtn.setOnClickListener {
             try {
                 val glView = MyGlSurfaceView(this@MainActivity)
@@ -105,7 +105,7 @@ class MainActivity : AppCompatActivity() {
                         MediaFormat.KEY_I_FRAME_INTERVAL, 10 // 10 seconds between I-frames
 
                     )
-                    lifecycleScope.launch(Dispatchers.IO) {
+                    lifecycleScope.launch(Dispatchers.Default) {
                         val inputSurfaceReference: AtomicReference<Surface> = AtomicReference<Surface>();
                         val mVideoEncoder = ExtractDecodeEditEncodeMuxTest.createVideoEncoder(
                             videoCodecInfo, outputVideoFormat, inputSurfaceReference
@@ -117,6 +117,7 @@ class MainActivity : AppCompatActivity() {
                         extractDecodeEditEncodeMux(
                             this@MainActivity,
                             Uri.parse("android.resource://" + "com.example.videodeocder" + "/" + com.example.videcoder.R.raw.content_video),
+                            Uri.parse("android.resource://" + "com.example.videodeocder" + "/" + com.example.videcoder.R.raw.mask_video),
                             outputSurface,
                             inputSurface,
                             inputSurfaceReference,
