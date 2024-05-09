@@ -49,8 +49,12 @@ public class TextureRender {
                     "precision mediump float;\n" +      // highp here doesn't seem to matter
                     "varying vec2 vTextureCoord;\n" +
                     "uniform samplerExternalOES sTexture;\n" +
+                    "uniform samplerExternalOES mTexture;\n" +
                     "void main() {\n" +
-                    "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
+                    "  vec4 texColor = texture2D(sTexture, vTextureCoord);\n" +
+                    "  vec4 maskColor = texture2D(mTexture, vTextureCoord);\n" +
+                    "  texColor.a = maskColor.r;\n" +
+                    "  gl_FragColor = texColor;\n" +
                     "}\n";
 
 
@@ -63,6 +67,8 @@ public class TextureRender {
     private int muSTMatrixHandle;
     private int maPositionHandle;
     private int maTextureHandle;
+    private int uniformTexture1;
+    private int uniformTexture2;
 
     public TextureRender() {
         mTriangleVertices = ByteBuffer.allocateDirect(
@@ -88,6 +94,10 @@ public class TextureRender {
         checkGlError("glUseProgram");
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
+        GLES20.glUniform1i(uniformTexture1, 0);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, rMaskTextureID);
+        GLES20.glUniform1i(uniformTexture2, 1);
         mTriangleVertices.position(TRIANGLE_VERTICES_DATA_POS_OFFSET);
         GLES20.glVertexAttribPointer(maPositionHandle, 3, GLES20.GL_FLOAT, false,
                 TRIANGLE_VERTICES_DATA_STRIDE_BYTES, mTriangleVertices);
@@ -135,6 +145,8 @@ public class TextureRender {
         if (muSTMatrixHandle == -1) {
             throw new RuntimeException("Could not get attrib location for uSTMatrix");
         }
+        uniformTexture1 = GLES20.glGetUniformLocation(mProgram, "sTexture");
+        uniformTexture2 = GLES20.glGetUniformLocation(mProgram, "mTexture");
         int[] textures = new int[2];
         GLES20.glGenTextures(2, textures, 0);
         mTextureID = textures[0];
@@ -149,61 +161,13 @@ public class TextureRender {
                 GLES20.GL_CLAMP_TO_EDGE);
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T,
                 GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glEnable(GLES20.GL_BLEND);
+
+// Set blending function
+        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA);
         checkGlError("glTexParameter");
         Log.v("Debug Tag", "initialised gl state");
     }
-
-//    public void mSurfaceCreated() {
-//        mProgram = createProgram(VERTEX_SHADER_2, FRAGMENT_SHADER_2D);
-//        if (mProgram == 0) {
-//            throw new RuntimeException("failed creating program");
-//        }
-//        quadPositionHandle = GLES20.glGetAttribLocation(program, "a_Position");
-//
-//        //Texture position handler
-//        texPositionHandle = GLES20.glGetAttribLocation(program, "a_TexCoord");
-//
-//        //Texture uniform handler
-//        textureUniformHandle = GLES20.glGetUniformLocation(program, "u_Texture");
-//
-//        //View projection transformation matrix handler
-//        viewProjectionMatrixHandle = GLES20.glGetUniformLocation(program, "uVPMatrix");
-////        maPositionHandle = GLES20.glGetAttribLocation(mProgram, "a_Position");
-////        checkGlError("glGetAttribLocation aPosition");
-////        if (maPositionHandle == -1) {
-////            throw new RuntimeException("Could not get attrib location for aPosition");
-////        }
-////        maTextureHandle = GLES20.glGetAttribLocation(mProgram, "a_TexCoord");
-////        checkGlError("glGetAttribLocation aTextureCoord");
-////        if (maTextureHandle == -1) {
-////            throw new RuntimeException("Could not get attrib location for aTextureCoord");
-////        }
-////        muMVPMatrixHandle = GLES20.glGetUniformLocation(mProgram, "u_Texture");
-////        checkGlError("glGetUniformLocation uMVPMatrix");
-////        if (muMVPMatrixHandle == -1) {
-////            throw new RuntimeException("Could not get attrib location for uMVPMatrix");
-////        }
-////        muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uVPMatrix");
-////        checkGlError("glGetUniformLocation uSTMatrix");
-////        if (muSTMatrixHandle == -1) {
-////            throw new RuntimeException("Could not get attrib location for uSTMatrix");
-////        }
-//        Log.v("Debug Tag", "initialised gl state");
-//    }
-
-//    public void drawByteBuffer(ByteBuffer bb, Integer width, Integer height){
-//        int[] textures = new int[1];
-//        GLES20.glGenTextures(1, textures, 0);
-//        mTextureID = textures[0];
-//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureID);
-//        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, bb);
-//        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-//        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-//        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
-//        GLES20.glEnable(GLES20.GL_TEXTURE_2D);
-//        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, mTextureID);
-//        GLES20.glDisable(GLES20.GL_TEXTURE_2D);
-//    }
 
     /**
      * Replaces the fragment shader.
